@@ -1,18 +1,37 @@
 #include <iostream>
 #include <string>
+#include <vector>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
-#include <limits>
+#include <ncurses.h>
 
 using namespace std;
 
-const int MAX_HEALTH = 100;
-const int WIN_GOAL = 5;
+const int MAP_W = 60;
+const int MAP_H = 20;
+const int WIN_SCORE = 12;
+
+struct Item
+{
+    int x;
+    int y;
+    char type;
+};
+
+struct Enemy
+{
+    int x;
+    int y;
+    int health;
+    int attack;
+    char symbol;
+};
 
 struct Player
 {
-    string name;
+    int x;
+    int y;
     int health;
     int maxHealth;
     int attack;
@@ -22,314 +41,303 @@ struct Player
     int food;
     int gold;
     int walls;
-    int wins;
-    int losses;
     int day;
-    int campLevel;
+    int kills;
+    int score;
 };
 
-struct Enemy
+bool inBounds(int x, int y)
 {
-    string name;
-    int health;
-    int attack;
-    int defense;
-    int reward;
-};
-
-int randomNumber(int lowest, int highest)
-{
-    return lowest + rand() % (highest - lowest + 1);
+    return x >= 0 && x < MAP_W && y >= 0 && y < MAP_H;
 }
 
-void clearInput()
+void resetGame(Player& player, vector<Item>& items, vector<Enemy>& enemies, bool wallMap[MAP_H][MAP_W])
 {
-    cin.clear();
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-}
+    player.x = MAP_W / 2;
+    player.y = MAP_H / 2;
+    player.health = 100;
+    player.maxHealth = 100;
+    player.attack = 12;
+    player.defense = 6;
+    player.wood = 0;
+    player.stone = 0;
+    player.food = 4;
+    player.gold = 0;
+    player.walls = 0;
+    player.day = 1;
+    player.kills = 0;
+    player.score = 0;
 
-void printDivider()
-{
-    cout << "\n========================================\n";
-}
-
-void showStats(const Player& player)
-{
-    printDivider();
-    cout << "PLAYER: " << player.name << "\n";
-    cout << "Day: " << player.day << "\n";
-    cout << "Health: " << player.health << "/" << player.maxHealth << "\n";
-    cout << "Attack: " << player.attack << "\n";
-    cout << "Defense: " << player.defense << "\n";
-    cout << "Wood: " << player.wood << "\n";
-    cout << "Stone: " << player.stone << "\n";
-    cout << "Food: " << player.food << "\n";
-    cout << "Gold: " << player.gold << "\n";
-    cout << "Walls: " << player.walls << "\n";
-    cout << "Wins: " << player.wins << "\n";
-    cout << "Losses: " << player.losses << "\n";
-    cout << "Camp Level: " << player.campLevel << "\n";
-}
-
-void gatherResources(Player& player)
-{
-    int woodGain = randomNumber(6, 15);
-    int stoneGain = randomNumber(2, 7);
-    int foodGain = randomNumber(4, 10);
-    int goldGain = randomNumber(0, 3);
-
-    player.wood += woodGain;
-    player.stone += stoneGain;
-    player.food += foodGain;
-    player.gold += goldGain;
-
-    cout << "You gather supplies from the forest and ruins.\n";
-    cout << "+" << woodGain << " wood, +" << stoneGain << " stone, +" << foodGain << " food, +" << goldGain << " gold\n";
-}
-
-void buildWall(Player& player)
-{
-    int woodCost = 8;
-    int stoneCost = 5;
-
-    if (player.wood < woodCost || player.stone < stoneCost)
+    for (int y = 0; y < MAP_H; y++)
     {
-        cout << "You need " << woodCost << " wood and " << stoneCost << " stone to build a wall.\n";
-        return;
-    }
-
-    player.wood -= woodCost;
-    player.stone -= stoneCost;
-    player.walls += 1;
-    player.defense += 1;
-
-    cout << "A wall goes up around your camp. Defense +1\n";
-}
-
-void restAndHeal(Player& player)
-{
-    int foodCost = 3;
-
-    if (player.food < foodCost)
-    {
-        cout << "You need " << foodCost << " food to rest and recover.\n";
-        return;
-    }
-
-    player.food -= foodCost;
-    int healAmount = randomNumber(12, 25);
-    player.health = min(player.maxHealth, player.health + healAmount);
-
-    cout << "You rest by the fire and recover " << healAmount << " health.\n";
-}
-
-void upgradeGear(Player& player)
-{
-    int woodCost = 10;
-    int stoneCost = 8;
-    int goldCost = 12;
-
-    if (player.wood < woodCost || player.stone < stoneCost || player.gold < goldCost)
-    {
-        cout << "You need " << woodCost << " wood, " << stoneCost << " stone, and " << goldCost << " gold.\n";
-        return;
-    }
-
-    player.wood -= woodCost;
-    player.stone -= stoneCost;
-    player.gold -= goldCost;
-    player.attack += 2;
-    player.defense += 1;
-
-    cout << "Your gear is improved. Attack +2, Defense +1\n";
-}
-
-void upgradeCamp(Player& player)
-{
-    int woodCost = 12;
-    int stoneCost = 10;
-    int goldCost = 15;
-
-    if (player.wood < woodCost || player.stone < stoneCost || player.gold < goldCost)
-    {
-        cout << "You need " << woodCost << " wood, " << stoneCost << " stone, and " << goldCost << " gold to improve the camp.\n";
-        return;
-    }
-
-    player.wood -= woodCost;
-    player.stone -= stoneCost;
-    player.gold -= goldCost;
-    player.campLevel += 1;
-    player.maxHealth += 10;
-    player.health = player.maxHealth;
-
-    cout << "Your camp grows stronger. Max health +10 and health restored.\n";
-}
-
-Enemy generateEnemy(int day)
-{
-    Enemy enemy;
-    int tier = randomNumber(1, 4);
-
-    if (tier == 1)
-    {
-        enemy.name = "Scout";
-        enemy.health = 22 + day * 4;
-        enemy.attack = 7 + day;
-        enemy.defense = 2 + day / 2;
-        enemy.reward = 10 + day * 2;
-    }
-    else if (tier == 2)
-    {
-        enemy.name = "Raider";
-        enemy.health = 30 + day * 5;
-        enemy.attack = 9 + day;
-        enemy.defense = 3 + day / 2;
-        enemy.reward = 14 + day * 2;
-    }
-    else if (tier == 3)
-    {
-        enemy.name = "Brute";
-        enemy.health = 40 + day * 6;
-        enemy.attack = 12 + day;
-        enemy.defense = 4 + day / 2;
-        enemy.reward = 18 + day * 3;
-    }
-    else
-    {
-        enemy.name = "Warden";
-        enemy.health = 50 + day * 7;
-        enemy.attack = 15 + day;
-        enemy.defense = 6 + day;
-        enemy.reward = 22 + day * 4;
-    }
-
-    return enemy;
-}
-
-void showEnemy(const Enemy& enemy)
-{
-    cout << "Enemy: " << enemy.name << "\n";
-    cout << "Health: " << enemy.health << "\n";
-    cout << "Attack: " << enemy.attack << "\n";
-    cout << "Defense: " << enemy.defense << "\n";
-    cout << "Reward: " << enemy.reward << " gold\n";
-}
-
-void battle(Player& player)
-{
-    Enemy enemy = generateEnemy(player.day);
-    int turn = 1;
-    int blockAmount = 0;
-
-    printDivider();
-    cout << "A wild " << enemy.name << " appears!\n";
-    showEnemy(enemy);
-
-    while (player.health > 0 && enemy.health > 0)
-    {
-        int choice;
-
-        printDivider();
-        cout << "TURN " << turn << "\n";
-        cout << "1 - Attack\n";
-        cout << "2 - Guard\n";
-        cout << "3 - Eat food\n";
-        cout << "4 - Run\n";
-        cout << "Choose: ";
-        cin >> choice;
-
-        if (choice == 1)
+        for (int x = 0; x < MAP_W; x++)
         {
-            int damage = randomNumber(player.attack, player.attack + 8) - enemy.defense;
-            if (damage < 1)
+            wallMap[y][x] = false;
+        }
+    }
+
+    items.clear();
+    enemies.clear();
+
+    for (int i = 0; i < 24; i++)
+    {
+        Item item;
+        item.x = rand() % MAP_W;
+        item.y = rand() % MAP_H;
+        char types[] = {'W', 'S', 'F', 'G'};
+        item.type = types[rand() % 4];
+        items.push_back(item);
+    }
+
+    for (int i = 0; i < 6; i++)
+    {
+        Enemy enemy;
+        enemy.x = rand() % MAP_W;
+        enemy.y = rand() % MAP_H;
+        enemy.health = 18 + rand() % 20;
+        enemy.attack = 6 + rand() % 8;
+        enemy.symbol = 'E';
+        enemies.push_back(enemy);
+    }
+}
+
+void drawMap(const Player& player, const vector<Item>& items, const vector<Enemy>& enemies, const bool wallMap[MAP_H][MAP_W], const string& message)
+{
+    clear();
+
+    for (int y = 0; y < MAP_H; y++)
+    {
+        for (int x = 0; x < MAP_W; x++)
+        {
+            bool drawn = false;
+
+            for (const auto& item : items)
             {
-                damage = 1;
+                if (item.x == x && item.y == y)
+                {
+                    mvaddch(y, x, item.type);
+                    drawn = true;
+                    break;
+                }
             }
 
-            enemy.health -= damage;
-            cout << "You hit for " << damage << " damage.\n";
-        }
-        else if (choice == 2)
-        {
-            blockAmount = player.defense + 5;
-            cout << "You guard and reduce incoming damage by " << blockAmount << " next turn.\n";
-        }
-        else if (choice == 3)
-        {
-            if (player.food <= 0)
+            if (drawn)
             {
-                cout << "You have no food left.\n";
                 continue;
             }
 
-            player.food--;
-            int healAmount = randomNumber(8, 18);
-            player.health = min(player.maxHealth, player.health + healAmount);
-            cout << "You eat and recover " << healAmount << " health.\n";
+            for (const auto& enemy : enemies)
+            {
+                if (enemy.x == x && enemy.y == y)
+                {
+                    mvaddch(y, x, enemy.symbol);
+                    drawn = true;
+                    break;
+                }
+            }
+
+            if (drawn)
+            {
+                continue;
+            }
+
+            if (wallMap[y][x])
+            {
+                mvaddch(y, x, '#');
+                continue;
+            }
+
+            mvaddch(y, x, '.');
         }
-        else if (choice == 4)
+    }
+
+    mvaddch(player.y, player.x, '@');
+
+    mvprintw(0, MAP_W + 2, "FOREVER WORLD");
+    mvprintw(1, MAP_W + 2, "Health: %d/%d", player.health, player.maxHealth);
+    mvprintw(2, MAP_W + 2, "Attack: %d", player.attack);
+    mvprintw(3, MAP_W + 2, "Defense: %d", player.defense);
+    mvprintw(4, MAP_W + 2, "Wood: %d", player.wood);
+    mvprintw(5, MAP_W + 2, "Stone: %d", player.stone);
+    mvprintw(6, MAP_W + 2, "Food: %d", player.food);
+    mvprintw(7, MAP_W + 2, "Gold: %d", player.gold);
+    mvprintw(8, MAP_W + 2, "Walls: %d", player.walls);
+    mvprintw(9, MAP_W + 2, "Day: %d", player.day);
+    mvprintw(10, MAP_W + 2, "Kills: %d", player.kills);
+    mvprintw(11, MAP_W + 2, "Score: %d/%d", player.score, WIN_SCORE);
+
+    mvprintw(MAP_H - 1, 0, "%s", message.c_str());
+    refresh();
+}
+
+void addResource(Player& player, char type)
+{
+    if (type == 'W')
+    {
+        player.wood += 2;
+    }
+    else if (type == 'S')
+    {
+        player.stone += 2;
+    }
+    else if (type == 'F')
+    {
+        player.food += 3;
+    }
+    else if (type == 'G')
+    {
+        player.gold += 2;
+    }
+
+    player.score++;
+}
+
+void moveEnemyToward(Enemy& enemy, const Player& player)
+{
+    int dx = player.x - enemy.x;
+    int dy = player.y - enemy.y;
+
+    if (abs(dx) > abs(dy))
+    {
+        enemy.x += (dx > 0) ? 1 : -1;
+    }
+    else if (dy != 0)
+    {
+        enemy.y += (dy > 0) ? 1 : -1;
+    }
+
+    if (!inBounds(enemy.x, enemy.y))
+    {
+        enemy.x = max(0, min(MAP_W - 1, enemy.x));
+        enemy.y = max(0, min(MAP_H - 1, enemy.y));
+    }
+}
+
+void attackEnemy(Player& player, vector<Enemy>& enemies)
+{
+    for (size_t i = 0; i < enemies.size(); ++i)
+    {
+        if (enemies[i].x == player.x && enemies[i].y == player.y)
         {
-            cout << "You retreat from the battle and save your strength.\n";
+            int damage = max(1, player.attack + rand() % 6 - enemies[i].health / 10);
+            enemies[i].health -= damage;
+
+            if (enemies[i].health <= 0)
+            {
+                player.kills++;
+                player.gold += 2;
+                enemies.erase(enemies.begin() + i);
+                return;
+            }
+
+            int enemyDamage = max(1, enemies[i].attack - player.defense + rand() % 4);
+            player.health -= enemyDamage;
             return;
         }
-        else
-        {
-            cout << "Invalid choice. You hesitate.\n";
-            continue;
-        }
+    }
+}
 
-        if (enemy.health <= 0)
+bool handlePlayerMove(Player& player, vector<Item>& items, vector<Enemy>& enemies, bool wallMap[MAP_H][MAP_W], int dx, int dy, string& message)
+{
+    int newX = player.x + dx;
+    int newY = player.y + dy;
+
+    if (!inBounds(newX, newY))
+    {
+        message = "You hit the edge of the world.";
+        return false;
+    }
+
+    if (wallMap[newY][newX])
+    {
+        message = "A wall blocks your path.";
+        return false;
+    }
+
+    player.x = newX;
+    player.y = newY;
+
+    for (size_t i = 0; i < items.size(); ++i)
+    {
+        if (items[i].x == player.x && items[i].y == player.y)
         {
+            addResource(player, items[i].type);
+            items.erase(items.begin() + i);
+            message = "Resource collected!";
             break;
         }
-
-        int enemyDamage = randomNumber(max(1, enemy.attack - 2), enemy.attack + 4) - (player.defense + blockAmount);
-        if (enemyDamage < 1)
-        {
-            enemyDamage = 1;
-        }
-
-        player.health -= enemyDamage;
-
-        if (blockAmount > 0)
-        {
-            cout << "Your guard reduces the hit.\n";
-            blockAmount = 0;
-        }
-
-        cout << enemy.name << " hits you for " << enemyDamage << " damage.\n";
-        cout << "Your health: " << max(0, player.health) << "/" << player.maxHealth << "\n";
-        turn++;
     }
 
-    printDivider();
-
-    if (player.health > 0)
+    if (!enemies.empty())
     {
-        player.wins++;
-        player.gold += enemy.reward;
-        player.food += randomNumber(2, 5);
-        player.day += 1;
-
-        cout << "Victory! You defeated the " << enemy.name << "!\n";
-        cout << "+" << enemy.reward << " gold and +" << randomNumber(2, 5) << " food\n";
-
-        if (player.wins >= WIN_GOAL)
+        for (const auto& enemy : enemies)
         {
-            cout << "\nYou have survived long enough to win the world!\n";
-            cout << "Congratulations, " << player.name << "!\n";
-            cout << "Press any key to exit...\n";
-            clearInput();
-            exit(0);
+            if (enemy.x == player.x && enemy.y == player.y)
+            {
+                attackEnemy(player, enemies);
+                message = "You fight a monster!";
+                break;
+            }
         }
     }
-    else
+
+    return true;
+}
+
+void buildWall(Player& player, bool wallMap[MAP_H][MAP_W], string& message)
+{
+    if (player.wood < 3 || player.stone < 2)
     {
-        player.losses++;
-        player.day += 1;
-        player.health = max(1, player.maxHealth / 2);
-        cout << "You were defeated. You crawl back to camp and recover half health.\n";
+        message = "Need 3 wood and 2 stone to build a wall.";
+        return;
+    }
+
+    int x = player.x;
+    int y = player.y;
+
+    if (wallMap[y][x])
+    {
+        message = "There is already a wall there.";
+        return;
+    }
+
+    player.wood -= 3;
+    player.stone -= 2;
+    wallMap[y][x] = true;
+    player.walls++;
+    message = "Wall built!";
+}
+
+void startNewDay(Player& player, bool wallMap[MAP_H][MAP_W], vector<Item>& items, vector<Enemy>& enemies)
+{
+    player.day += 1;
+    player.food = max(0, player.food - 1);
+    player.health = min(player.maxHealth, player.health + 8);
+
+    if (player.food <= 0)
+    {
+        player.health -= 10;
+    }
+
+    if (rand() % 3 == 0)
+    {
+        Enemy enemy;
+        enemy.x = rand() % MAP_W;
+        enemy.y = rand() % MAP_H;
+        enemy.health = 20 + player.day * 3;
+        enemy.attack = 8 + player.day;
+        enemy.symbol = 'E';
+        enemies.push_back(enemy);
+    }
+
+    if (items.size() < 20)
+    {
+        Item item;
+        item.x = rand() % MAP_W;
+        item.y = rand() % MAP_H;
+        char types[] = {'W', 'S', 'F', 'G'};
+        item.type = types[rand() % 4];
+        items.push_back(item);
     }
 }
 
@@ -337,92 +345,120 @@ int main()
 {
     srand(static_cast<unsigned int>(time(0)));
 
+    initscr();
+    noecho();
+    cbreak();
+    keypad(stdscr, TRUE);
+    nodelay(stdscr, TRUE);
+    curs_set(0);
+
     Player player;
-    player.name = "";
-    player.maxHealth = MAX_HEALTH;
-    player.health = MAX_HEALTH;
-    player.attack = 12;
-    player.defense = 6;
-    player.wood = 20;
-    player.stone = 12;
-    player.food = 8;
-    player.gold = 10;
-    player.walls = 0;
-    player.wins = 0;
-    player.losses = 0;
-    player.day = 1;
-    player.campLevel = 1;
+    vector<Item> items;
+    vector<Enemy> enemies;
+    bool wallMap[MAP_H][MAP_W];
 
-    cout << "========================================\n";
-    cout << "FOREVER WORLD: LAST STAND\n";
-    cout << "========================================\n";
-    cout << "Enter your name: ";
-    getline(cin, player.name);
+    resetGame(player, items, enemies, wallMap);
 
-    if (player.name.empty())
-    {
-        player.name = "Warden";
-    }
-
+    string message = "The wilds are waiting. Gather resources and survive.";
     bool running = true;
+    int frameCounter = 0;
 
     while (running)
     {
-        printDivider();
-        cout << "MAIN MENU\n";
-        cout << "1 - Explore the wild\n";
-        cout << "2 - Gather resources\n";
-        cout << "3 - Build wall\n";
-        cout << "4 - Eat and recover\n";
-        cout << "5 - Upgrade gear\n";
-        cout << "6 - Upgrade camp\n";
-        cout << "7 - View stats\n";
-        cout << "8 - Quit\n";
-        cout << "Choose: ";
+        drawMap(player, items, enemies, wallMap, message);
 
-        int choice;
-        cin >> choice;
+        int ch = getch();
+        bool moved = false;
 
-        if (choice == 1)
+        if (ch == 'q')
         {
-            battle(player);
-        }
-        else if (choice == 2)
-        {
-            gatherResources(player);
-        }
-        else if (choice == 3)
-        {
-            buildWall(player);
-        }
-        else if (choice == 4)
-        {
-            restAndHeal(player);
-        }
-        else if (choice == 5)
-        {
-            upgradeGear(player);
-        }
-        else if (choice == 6)
-        {
-            upgradeCamp(player);
-        }
-        else if (choice == 7)
-        {
-            showStats(player);
-        }
-        else if (choice == 8)
-        {
-            cout << "Thanks for playing, " << player.name << "!\n";
             running = false;
         }
-        else
+        else if (ch == 'w')
         {
-            cout << "Invalid selection. Try again.\n";
+            moved = handlePlayerMove(player, items, enemies, wallMap, 0, -1, message);
+        }
+        else if (ch == 's')
+        {
+            moved = handlePlayerMove(player, items, enemies, wallMap, 0, 1, message);
+        }
+        else if (ch == 'a')
+        {
+            moved = handlePlayerMove(player, items, enemies, wallMap, -1, 0, message);
+        }
+        else if (ch == 'd')
+        {
+            moved = handlePlayerMove(player, items, enemies, wallMap, 1, 0, message);
+        }
+        else if (ch == 'b')
+        {
+            buildWall(player, wallMap, message);
+        }
+        else if (ch == 'h')
+        {
+            if (player.food >= 1)
+            {
+                player.food--;
+                player.health = min(player.maxHealth, player.health + 12);
+                message = "You eat and recover 12 health.";
+            }
+            else
+            {
+                message = "You have no food left.";
+            }
         }
 
-        clearInput();
+        if (moved)
+        {
+            frameCounter++;
+            if (frameCounter >= 3)
+            {
+                startNewDay(player, wallMap, items, enemies);
+                frameCounter = 0;
+            }
+        }
+
+        for (auto& enemy : enemies)
+        {
+            moveEnemyToward(enemy, player);
+            if (enemy.x == player.x && enemy.y == player.y)
+            {
+                int strike = max(1, enemy.attack - player.defense + rand() % 5);
+                player.health -= strike;
+                message = "An enemy attacks you!";
+            }
+        }
+
+        if (player.health <= 0)
+        {
+            message = "You were defeated. Press r to restart or q to quit.";
+            drawMap(player, items, enemies, wallMap, message);
+            int key = getch();
+            if (key == 'r')
+            {
+                resetGame(player, items, enemies, wallMap);
+                message = "Fresh start. The wilds await.";
+            }
+            else if (key == 'q')
+            {
+                running = false;
+            }
+        }
+
+        if (player.score >= WIN_SCORE)
+        {
+            message = "You survived and won the world! Press q to quit.";
+            drawMap(player, items, enemies, wallMap, message);
+            int key = getch();
+            if (key == 'q')
+            {
+                running = false;
+            }
+        }
+
+        napms(100);
     }
 
+    endwin();
     return 0;
 }
